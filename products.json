@@ -1,0 +1,74 @@
+{
+    "categories": [
+      {
+        "id": 1,
+        "name": "💎 Digital Accounts",
+        "description": "Premium digital accounts and subscriptions"
+      },
+      {
+        "id": 2, 
+        "name": "🚀 Gaming",
+        "description": "Game accounts, items and services"
+      },
+      {
+        "id": 3,
+        "name": "📚 Education",
+        "description": "Courses and educational content"
+      }
+    ],
+    "subcategories": [
+      {
+        "id": 1,
+        "name": "Streaming Services",
+        "category_id": 1,
+        "description": "Video and music streaming accounts"
+      },
+      {
+        "id": 2,
+        "name": "Social Media", 
+        "category_id": 1,
+        "description": "Premium social media accounts"
+      },
+      {
+        "id": 3,
+        "name": "Game Accounts",
+        "category_id": 2,
+        "description": "Premium game accounts"
+      },
+      {
+        "id": 4,
+        "name": "In-Game Items",
+        "category_id": 2,
+        "description": "Game items and currency"
+      }
+    ],
+    "products": [
+      {
+        "id": 1,
+        "name": "Netflix Premium",
+        "description": "4K Ultra HD, 4 screens simultaneously",
+        "price": 5.99,
+        "category_id": 1,
+        "subcategory_id": 1,
+        "features": ["4K Quality", "4 Screens", "30 Days Warranty"]
+      },
+      {
+        "id": 2,
+        "name": "Spotify Family",
+        "description": "Spotify Family Plan - 6 accounts",
+        "price": 4.99,
+        "category_id": 1,
+        "subcategory_id": 1,
+        "features": ["6 Accounts", "Premium Features", "60 Days Warranty"]
+      },
+      {
+        "id": 3,
+        "name": "Instagram Verified",
+        "description": "Blue tick verified account",
+        "price": 49.99,
+        "category_id": 1,
+        "subcategory_id": 2,
+        "features": ["Blue Tick", "Lifetime Support", "Secure"]
+      }
+    ]
+  }
