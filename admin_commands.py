@@ -1,27 +1,27 @@
 import json
 import logging
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import CallbackContext, CommandHandler
 from config import ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
 class AdminCommands:
-    def __init__(self, application):
-        self.application = application
+    def __init__(self, dispatcher):
+        self.dispatcher = dispatcher
         self.setup_admin_handlers()
     
     def setup_admin_handlers(self):
         """Setup admin-only command handlers"""
-        self.application.add_handler(CommandHandler("addproduct", self.add_product))
-        self.application.add_handler(CommandHandler("addcategory", self.add_category))
-        self.application.add_handler(CommandHandler("addsubcategory", self.add_subcategory))
-        self.application.add_handler(CommandHandler("listproducts", self.list_products))
-        self.application.add_handler(CommandHandler("listcategories", self.list_categories))
-        self.application.add_handler(CommandHandler("listsubcategories", self.list_subcategories))
-        self.application.add_handler(CommandHandler("deleteproduct", self.delete_product))
-        self.application.add_handler(CommandHandler("deletecategory", self.delete_category))
-        self.application.add_handler(CommandHandler("deletesubcategory", self.delete_subcategory))
+        self.dispatcher.add_handler(CommandHandler("addproduct", self.add_product, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("addcategory", self.add_category, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("addsubcategory", self.add_subcategory, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("listproducts", self.list_products, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("listcategories", self.list_categories, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("listsubcategories", self.list_subcategories, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("deleteproduct", self.delete_product, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("deletecategory", self.delete_category, run_async=True))
+        self.dispatcher.add_handler(CommandHandler("deletesubcategory", self.delete_subcategory, run_async=True))
     
     async def is_admin(self, user_id):
         """Check if user is admin"""
@@ -37,7 +37,7 @@ class AdminCommands:
         with open('products.json', 'w') as f:
             json.dump(data, f, indent=2)
     
-    async def add_category(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_category(self, update: Update, context: CallbackContext):
         """Add a new category: /addcategory Name|Description"""
         user_id = update.message.from_user.id
         
@@ -84,7 +84,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def add_subcategory(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_subcategory(self, update: Update, context: CallbackContext):
         """Add a new subcategory: /addsubcategory Name|CategoryID|Description"""
         user_id = update.message.from_user.id
         
@@ -142,7 +142,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def add_product(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def add_product(self, update: Update, context: CallbackContext):
         """Add a new product: /addproduct Name|Description|Price|CategoryID|SubcategoryID|Feature1,Feature2"""
         user_id = update.message.from_user.id
         
@@ -221,7 +221,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def list_categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def list_categories(self, update: Update, context: CallbackContext):
         """List all categories and subcategories: /listcategories"""
         user_id = update.message.from_user.id
         
@@ -258,7 +258,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def list_subcategories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def list_subcategories(self, update: Update, context: CallbackContext):
         """List all subcategories: /listsubcategories"""
         user_id = update.message.from_user.id
         
@@ -286,7 +286,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def list_products(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def list_products(self, update: Update, context: CallbackContext):
         """List all products: /listproducts"""
         user_id = update.message.from_user.id
         
@@ -316,7 +316,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def delete_product(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_product(self, update: Update, context: CallbackContext):
         """Delete a product: /deleteproduct PRODUCT_ID"""
         user_id = update.message.from_user.id
         
@@ -347,7 +347,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def delete_category(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_category(self, update: Update, context: CallbackContext):
         """Delete a category and its subcategories/products: /deletecategory CATEGORY_ID"""
         user_id = update.message.from_user.id
         
@@ -397,7 +397,7 @@ class AdminCommands:
         except Exception as e:
             await update.message.reply_text(f"❌ Error: {str(e)}")
     
-    async def delete_subcategory(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def delete_subcategory(self, update: Update, context: CallbackContext):
         """Delete a subcategory and its products: /deletesubcategory SUBCATEGORY_ID"""
         user_id = update.message.from_user.id
         
