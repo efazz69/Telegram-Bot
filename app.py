@@ -1,7 +1,6 @@
 from flask import Flask, jsonify
 import os
 import subprocess
-import threading
 import sys
 
 app = Flask(__name__)
@@ -14,7 +13,7 @@ def home():
     return jsonify({
         "status": "online",
         "service": "Telegram Crypto Bot",
-        "message": "🤖 Bot web server is running"
+        "message": "🤖 Bot web server is running. Visit /start-bot to start the Telegram bot."
     })
 
 @app.route('/health')
@@ -30,7 +29,10 @@ def start_bot():
     
     try:
         # Start bot in a separate process
-        bot_process = subprocess.Popen([sys.executable, 'bot.py'])
+        bot_process = subprocess.Popen([sys.executable, 'bot.py'], 
+                                      stdout=subprocess.PIPE, 
+                                      stderr=subprocess.PIPE,
+                                      text=True)
         return jsonify({"status": "started", "message": "Bot started successfully"})
     
     except Exception as e:
@@ -45,15 +47,11 @@ def stop_bot():
     
     try:
         bot_process.terminate()
+        bot_process.wait(timeout=5)
         bot_process = None
         return jsonify({"status": "stopped", "message": "Bot stopped successfully"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/logs')
-def show_logs():
-    # This endpoint would show recent logs - simplified for now
-    return jsonify({"message": "Check Render.com dashboard for logs"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
