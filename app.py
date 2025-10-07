@@ -6,23 +6,373 @@ import os
 import logging
 import requests
 import json
-from datetime import datetime
-
-# Import your existing modules
-from config import BOT_TOKEN, ADMIN_ID
-from user_manager import UserManager
-from database import Database
-from payment_handler import PaymentHandler
+from datetime import datetime, timedelta
+from web3 import Web3
 
 # ---------------------------
-# Setup
+# Configuration
 # ---------------------------
 load_dotenv()
-app = Flask(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7963936009:AAEK3Y4GYCpRk4mbASW2Xvh7u0xedXmR64Y")
-ADMIN_ID = os.getenv("ADMIN_ID", "7091475665")
+# Bot Configuration
+BOT_TOKEN = os.getenv('BOT_TOKEN', '7963936009:AAEK3Y4GYCpRk4mbASW2Xvh7u0xedXmR64Y')
+ADMIN_ID = os.getenv('ADMIN_ID', '7091475665')
+
+# Payment Configuration
+CRYPTO_NETWORKS = {
+    'USDT_BEP20': {
+        'name': 'USDT (BEP20)',
+        'network': 'BSC',
+        'decimals': 18,
+        'usdt_contract': '0x55d398326f99059fF775485246999027B3197955'
+    },
+    'BTC': {
+        'name': 'Bitcoin',
+        'network': 'BTC',
+        'decimals': 8
+    },
+    'LTC': {
+        'name': 'Litecoin',
+        'network': 'LTC',
+        'decimals': 8
+    }
+}
+
+# Blockchain API Configuration
+BLOCKCHAIN_APIS = {
+    'BTC': 'https://blockstream.info/api/',
+    'LTC': 'https://api.blockcypher.com/v1/ltc/main/',
+    'BSC': 'https://bsc-dataseed.binance.org/'
+}
+
+# Render Configuration
+RENDER_URL = os.getenv('RENDER_EXTERNAL_URL', 'http://localhost:8000')
 WEBHOOK_URL = f"https://telegram-bot-5fco.onrender.com/{BOT_TOKEN}"
+
+# ---------------------------
+# User Manager Class
+# ---------------------------
+class UserManager:
+    def __init__(self):
+        self.users_file = 'users.json'
+        self._init_file()
+    
+    def _init_file(self):
+        if not os.path.exists(self.users_file):
+            with open(self.users_file, 'w') as f:
+                json.dump({}, f)
+    
+    def _read_users(self):
+        with open(self.users_file, 'r') as f:
+            return json.load(f)
+    
+    def _write_users(self, users):
+        with open(self.users_file, 'w') as f:
+            json.dump(users, f, indent=2)
+    
+    def get_user(self, user_id):
+        users = self._read_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in users:
+            return None
+        
+        return users[user_id_str]
+    
+    def create_user(self, user_id, username, first_name):
+        users = self._read_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str in users:
+            return users[user_id_str]
+        
+        user_data = {
+            'user_id': user_id,
+            'username': username,
+            'first_name': first_name,
+            'balance': 0.0,
+            'registration_date': datetime.now().isoformat(),
+            'first_topup_date': None,
+            'total_deposited': 0.0,
+            'total_orders': 0,
+            'last_activity': datetime.now().isoformat()
+        }
+        
+        users[user_id_str] = user_data
+        self._write_users(users)
+        return user_data
+    
+    def update_balance(self, user_id, amount):
+        users = self._read_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in users:
+            return False
+        
+        users[user_id_str]['balance'] += amount
+        users[user_id_str]['total_deposited'] += max(0, amount)
+        users[user_id_str]['last_activity'] = datetime.now().isoformat()
+        
+        # Set first top-up date if this is the first deposit
+        if amount > 0 and users[user_id_str]['first_topup_date'] is None:
+            users[user_id_str]['first_topup_date'] = datetime.now().isoformat()
+        
+        self._write_users(users)
+        return True
+    
+    def update_user_activity(self, user_id):
+        users = self._read_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str in users:
+            users[user_id_str]['last_activity'] = datetime.now().isoformat()
+            self._write_users(users)
+    
+    def increment_orders(self, user_id):
+        users = self._read_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str in users:
+            users[user_id_str]['total_orders'] += 1
+            self._write_users(users)
+
+# ---------------------------
+# Database Class
+# ---------------------------
+class Database:
+    def __init__(self):
+        self.orders_file = 'orders.json'
+        self._init_files()
+    
+    def _init_files(self):
+        for file in [self.orders_file]:
+            if not os.path.exists(file):
+                with open(file, 'w') as f:
+                    json.dump([], f)
+    
+    def _read_json(self, filename):
+        with open(filename, 'r') as f:
+            return json.load(f)
+    
+    def _write_json(self, filename, data):
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    def create_order(self, user_id, product_id, amount, crypto_currency, crypto_amount, payment_address, exchange_rate):
+        orders = self._read_json(self.orders_file)
+        order_id = len(orders) + 1
+        
+        order = {
+            'order_id': order_id,
+            'user_id': user_id,
+            'product_id': product_id,
+            'amount': amount,
+            'crypto_currency': crypto_currency,
+            'crypto_amount': crypto_amount,
+            'payment_address': payment_address,
+            'exchange_rate': exchange_rate,
+            'status': 'pending',
+            'created_at': datetime.now().isoformat(),
+            'expires_at': (datetime.now() + timedelta(minutes=15)).isoformat()
+        }
+        
+        orders.append(order)
+        self._write_json(self.orders_file, orders)
+        return order
+    
+    def get_order(self, order_id):
+        orders = self._read_json(self.orders_file)
+        for order in orders:
+            if order['order_id'] == order_id:
+                return order
+        return None
+    
+    def update_order_status(self, order_id, status):
+        orders = self._read_json(self.orders_file)
+        for order in orders:
+            if order['order_id'] == order_id:
+                order['status'] = status
+                if status == 'paid':
+                    order['paid_at'] = datetime.now().isoformat()
+                self._write_json(self.orders_file, orders)
+                return True
+        return False
+    
+    def get_user_orders(self, user_id):
+        orders = self._read_json(self.orders_file)
+        return [order for order in orders if order['user_id'] == user_id]
+    
+    def cleanup_expired_orders(self):
+        """Remove orders that have expired"""
+        orders = self._read_json(self.orders_file)
+        current_time = datetime.now()
+        valid_orders = []
+        
+        for order in orders:
+            expires_at = datetime.fromisoformat(order['expires_at'])
+            if expires_at > current_time or order['status'] in ['paid', 'cancelled']:
+                valid_orders.append(order)
+        
+        self._write_json(self.orders_file, valid_orders)
+        return len(orders) - len(valid_orders)
+
+# ---------------------------
+# Payment Handler Class
+# ---------------------------
+class PaymentHandler:
+    def __init__(self):
+        try:
+            self.bsc_web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_APIS['BSC']))
+            print("✅ Connected to BSC network")
+        except:
+            print("❌ Could not connect to BSC network")
+            self.bsc_web3 = None
+        
+        self.price_cache = {}
+        self.cache_duration = 300  # 5 minutes
+    
+    def get_real_time_price(self, crypto_currency):
+        """Get real-time cryptocurrency price from Binance API"""
+        try:
+            # Check if we have a valid cached price
+            cache_key = crypto_currency
+            if cache_key in self.price_cache:
+                cached_price, timestamp = self.price_cache[cache_key]
+                if time.time() - timestamp < self.cache_duration:
+                    return cached_price
+            
+            # Binance API for price
+            symbols = {
+                'BTC': 'BTCUSDT',
+                'LTC': 'LTCUSDT',
+                'USDT_BEP20': 'USDTUSDT'
+            }
+            
+            symbol = symbols.get(crypto_currency)
+            if not symbol:
+                return self.get_fallback_price(crypto_currency)
+            
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                price = float(data['price'])
+                
+                # Cache the price
+                self.price_cache[cache_key] = (price, time.time())
+                return price
+            else:
+                return self.get_fallback_price(crypto_currency)
+                
+        except Exception as e:
+            print(f"Price fetch error for {crypto_currency}: {e}")
+            return self.get_fallback_price(crypto_currency)
+    
+    def get_fallback_price(self, crypto_currency):
+        """Fallback prices if API fails"""
+        fallback_prices = {
+            'BTC': 45000.0,
+            'LTC': 75.0,
+            'USDT_BEP20': 1.0
+        }
+        return fallback_prices.get(crypto_currency, 1.0)
+    
+    def generate_payment_address(self, crypto_currency, order_id):
+        """Generate payment address for specific cryptocurrency"""
+        # 🚨 REPLACE THESE WITH YOUR ACTUAL WALLET ADDRESSES 🚨
+        addresses = {
+            'USDT_BEP20': '0x515a1DA038D2813400912C88Bbd4921836041766',
+            'BTC': 'bc1q85ad38ndcd29zgz7d77y5k9hcsurqxaqurzl2g',
+            'LTC': 'ltc1q2e3z74c63j5cn2hu0wep5vdrmmf6jv9zf6m4rv'
+        }
+        
+        return addresses.get(crypto_currency)
+    
+    def check_btc_payment(self, address, expected_amount):
+        """Check BTC payments using blockchain API"""
+        try:
+            url = f"{BLOCKCHAIN_APIS['BTC']}address/{address}"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                total_received = data.get('chain_stats', {}).get('funded_txo_sum', 0) / 100000000
+                return total_received >= expected_amount
+        except Exception as e:
+            print(f"BTC check error: {e}")
+        return False
+    
+    def check_ltc_payment(self, address, expected_amount):
+        """Check LTC payments using blockchain API"""
+        try:
+            url = f"{BLOCKCHAIN_APIS['LTC']}addrs/{address}/balance"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                total_received = data.get('total_received', 0) / 100000000
+                return total_received >= expected_amount
+        except Exception as e:
+            print(f"LTC check error: {e}")
+        return False
+    
+    def check_usdt_bep20_payment(self, address, expected_amount):
+        """Check USDT BEP20 payments"""
+        try:
+            # USDT BEP20 contract ABI (simplified)
+            usdt_abi = [
+                {
+                    "constant": True,
+                    "inputs": [{"name": "_owner", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
+                    "type": "function"
+                }
+            ]
+            
+            usdt_contract = self.bsc_web3.eth.contract(
+                address=Web3.to_checksum_address(CRYPTO_NETWORKS['USDT_BEP20']['usdt_contract']),
+                abi=usdt_abi
+            )
+            
+            balance = usdt_contract.functions.balanceOf(Web3.to_checksum_address(address)).call()
+            usdt_balance = balance / 10**18
+            return usdt_balance >= expected_amount
+        except Exception as e:
+            print(f"USDT check error: {e}")
+        return False
+    
+    def check_payment(self, crypto_currency, address, expected_amount):
+        """Check payment for specific cryptocurrency"""
+        checkers = {
+            'BTC': self.check_btc_payment,
+            'LTC': self.check_ltc_payment,
+            'USDT_BEP20': self.check_usdt_bep20_payment
+        }
+        
+        checker = checkers.get(crypto_currency)
+        if checker:
+            return checker(address, expected_amount)
+        return False
+    
+    def get_crypto_amount(self, usd_amount, crypto_currency):
+        """Convert USD amount to cryptocurrency amount using real-time prices"""
+        current_price = self.get_real_time_price(crypto_currency)
+        crypto_amount = usd_amount / current_price
+        
+        # Round to appropriate decimal places
+        if crypto_currency == 'BTC':
+            crypto_amount = round(crypto_amount, 6)
+        elif crypto_currency == 'LTC':
+            crypto_amount = round(crypto_amount, 4)
+        else:
+            crypto_amount = round(crypto_amount, 2)
+        
+        return crypto_amount, current_price
+
+# ---------------------------
+# Flask App Setup
+# ---------------------------
+app = Flask(__name__)
 
 bot = Bot(token=BOT_TOKEN)
 dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
