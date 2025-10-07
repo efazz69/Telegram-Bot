@@ -9,4 +9,3 @@ gunicorn==21.2.0
 apscheduler==3.6.3
 cryptography==41.0.7
 aiohttp==3.9.1
-imghdr-py==1.0.0
