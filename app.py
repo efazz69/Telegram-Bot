@@ -225,7 +225,7 @@ class Database:
         return len(orders) - len(valid_orders)
 
 # ---------------------------
-# Payment Handler Class with CoinGecko API
+# Improved Payment Handler with Multiple API Fallbacks
 # ---------------------------
 class PaymentHandler:
     def __init__(self):
@@ -233,61 +233,107 @@ class PaymentHandler:
         self.cache_duration = 300  # 5 minutes
         print("✅ Payment Handler Initialized")
     
-    def get_crypto_price(self, crypto_id):
-        """Get cryptocurrency price from CoinGecko API"""
+    def get_binance_price(self, symbol):
+        """Get price from Binance API"""
         try:
-            # Check cache first
-            cache_key = crypto_id
-            if cache_key in self.price_cache:
-                cached_price, timestamp = self.price_cache[cache_key]
-                if time.time() - timestamp < self.cache_duration:
-                    return cached_price
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+            response = requests.get(url, timeout=10)
             
-            # CoinGecko API - FREE and no API key required
+            if response.status_code == 200:
+                data = response.json()
+                return float(data['price'])
+            return None
+        except:
+            return None
+    
+    def get_kraken_price(self, pair):
+        """Get price from Kraken API"""
+        try:
+            url = f"https://api.kraken.com/0/public/Ticker?pair={pair}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'result' in data:
+                    # Kraken returns different keys, get the first one
+                    first_key = list(data['result'].keys())[0]
+                    return float(data['result'][first_key]['c'][0])
+            return None
+        except:
+            return None
+    
+    def get_coingecko_price(self, crypto_id):
+        """Get price from CoinGecko API"""
+        try:
             url = f"https://api.coingecko.com/api/v3/simple/price?ids={crypto_id}&vs_currencies=usd"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
                 price = data.get(crypto_id, {}).get('usd')
-                
                 if price:
-                    # Cache the price
-                    self.price_cache[cache_key] = (price, time.time())
-                    return price
-                else:
-                    print(f"❌ Price not found for {crypto_id}")
-                    return self.get_fallback_price(crypto_id)
-            else:
-                print(f"❌ API error: {response.status_code}")
-                return self.get_fallback_price(crypto_id)
-                
-        except Exception as e:
-            print(f"❌ Price fetch error for {crypto_id}: {e}")
-            return self.get_fallback_price(crypto_id)
-    
-    def get_fallback_price(self, crypto_id):
-        """Fallback prices if API fails"""
-        fallback_prices = {
-            'bitcoin': 45000.0,
-            'litecoin': 75.0,
-            'tether': 1.0
-        }
-        return fallback_prices.get(crypto_id, 1.0)
+                    return float(price)
+            return None
+        except:
+            return None
     
     def get_real_time_price(self, crypto_currency):
-        """Get real-time price for our supported currencies"""
-        crypto_map = {
-            'BTC': 'bitcoin',
-            'LTC': 'litecoin', 
-            'USDT_BEP20': 'tether'
-        }
+        """Get real-time price with multiple fallback APIs"""
+        cache_key = crypto_currency
+        current_time = time.time()
         
-        crypto_id = crypto_map.get(crypto_currency)
-        if not crypto_id:
-            return 1.0
+        # Check cache first
+        if cache_key in self.price_cache:
+            cached_price, timestamp = self.price_cache[cache_key]
+            if current_time - timestamp < self.cache_duration:
+                return cached_price
+        
+        price = None
+        print(f"🔍 Fetching price for {crypto_currency}...")
+        
+        if crypto_currency == 'BTC':
+            # Try multiple APIs for BTC
+            price = self.get_binance_price('BTCUSDT')
+            if not price:
+                price = self.get_kraken_price('XXBTZUSD')
+            if not price:
+                price = self.get_coingecko_price('bitcoin')
+                
+        elif crypto_currency == 'LTC':
+            # Try multiple APIs for LTC
+            price = self.get_binance_price('LTCUSDT')
+            if not price:
+                price = self.get_kraken_price('XLTCZUSD')
+            if not price:
+                price = self.get_coingecko_price('litecoin')
+                
+        elif crypto_currency == 'USDT_BEP20':
+            # For USDT, we expect ~1.0, but check multiple sources
+            price = self.get_binance_price('BUSDUSDT')  # Using BUSD as stablecoin reference
+            if not price:
+                price = self.get_kraken_price('USDTZUSD')
+            if not price:
+                price = self.get_coingecko_price('tether')
             
-        return self.get_crypto_price(crypto_id)
+            # If still no price or price is unrealistic, use 1.0
+            if not price or price < 0.9 or price > 1.1:
+                price = 1.0
+        
+        # If all APIs fail, use fallback prices
+        if not price:
+            fallback_prices = {
+                'BTC': 45000.0,
+                'LTC': 75.0,
+                'USDT_BEP20': 1.0
+            }
+            price = fallback_prices.get(crypto_currency, 1.0)
+            print(f"⚠️ Using fallback price for {crypto_currency}: ${price}")
+        else:
+            print(f"✅ Real-time price for {crypto_currency}: ${price:.4f}")
+        
+        # Cache the price
+        self.price_cache[cache_key] = (price, current_time)
+        return price
     
     def generate_payment_address(self, crypto_currency, order_id):
         """Generate payment address for specific cryptocurrency"""
@@ -309,7 +355,7 @@ class PaymentHandler:
         current_price = self.get_real_time_price(crypto_currency)
         
         if current_price <= 0:
-            current_price = self.get_fallback_price(crypto_currency)
+            current_price = 1.0  # Prevent division by zero
         
         crypto_amount = usd_amount / current_price
         
@@ -367,7 +413,7 @@ def start(update, context):
 
 💎 **Features:**
 • Buy digital products with cryptocurrency
-• Real-time crypto prices from CoinGecko
+• Real-time crypto prices from multiple APIs
 • Support for BTC, LTC, USDT (BEP20)
 • Instant delivery after payment
 • User balance system
@@ -433,7 +479,7 @@ Choose a cryptocurrency to deposit:
 • **Bitcoin (BTC)** - Most popular
 • **Litecoin (LTC)** - Fast confirmations
 
-💱 Real-time prices from CoinGecko API
+💱 Real-time prices from multiple APIs (Binance, Kraken, CoinGecko)
     """
     
     keyboard = [
@@ -475,7 +521,7 @@ def show_about(update, context):
 
 💎 **Features:**
 • Secure cryptocurrency payments
-• Real-time price feeds from CoinGecko
+• Real-time price feeds from multiple APIs
 • Instant digital product delivery
 • User balance system
 • 24/7 automated service
@@ -582,7 +628,7 @@ def start_callback(query):
 
 💎 **Features:**
 • Buy digital products with cryptocurrency
-• Real-time crypto prices from CoinGecko
+• Real-time crypto prices from multiple APIs
 • Support for BTC, LTC, USDT (BEP20)
 • Instant delivery after payment
 • User balance system
@@ -645,7 +691,7 @@ Choose a cryptocurrency to deposit:
 • **Bitcoin (BTC)** - Most popular
 • **Litecoin (LTC)** - Fast confirmations
 
-💱 Real-time prices from CoinGecko API
+💱 Real-time prices from multiple APIs (Binance, Kraken, CoinGecko)
     """
     
     keyboard = [
@@ -684,7 +730,7 @@ def show_about_callback(query):
 
 💎 **Features:**
 • Secure cryptocurrency payments
-• Real-time price feeds from CoinGecko
+• Real-time price feeds from multiple APIs
 • Instant digital product delivery
 • User balance system
 • 24/7 automated service
@@ -750,7 +796,7 @@ def handle_deposit_selection(query, crypto_currency):
     deposit_text = f"""
 💰 **Add Balance with {crypto_currency}**
 
-💱 Current Price: 1 {crypto_currency} = ${current_price:.2f} USD
+💱 Current Price: 1 {crypto_currency} = ${current_price:.4f} USD
 
 Please enter the amount in USD you want to deposit:
 
@@ -946,7 +992,7 @@ def handle_text_message(update, context):
 
 💵 **Amount:** ${usd_amount:.2f} USD
 🪙 **To Pay:** {crypto_amount:.8f} {crypto_currency}
-💱 **Exchange Rate:** 1 {crypto_currency} = ${current_price:.2f} USD
+💱 **Exchange Rate:** 1 {crypto_currency} = ${current_price:.4f} USD
 
 📍 **Send to this address:**
 `{payment_address}`
@@ -979,7 +1025,7 @@ def handle_text_message(update, context):
         update.message.reply_text("💡 Use the menu buttons or commands to navigate the bot.\n\nUse /start to see the main menu.")
 
 # ---------------------------
-# Admin Command Functions
+# Admin Command Functions (Keep your existing admin functions)
 # ---------------------------
 def is_admin(user_id):
     """Check if user is admin"""
@@ -1464,7 +1510,7 @@ def home():
     return jsonify({
         "status": "online",
         "service": "Telegram Crypto Bot",
-        "message": "🤖 Flask server is running successfully with CoinGecko API!",
+        "message": "🤖 Flask server is running successfully with Multi-API Price System!",
         "webhook_url": WEBHOOK_URL,
         "admin_id": ADMIN_ID
     })
@@ -1509,10 +1555,11 @@ if __name__ == '__main__':
         print("✅ Webhook set successfully!")
         print(f"🌐 Webhook URL: {WEBHOOK_URL}")
         print(f"👑 Admin ID: {ADMIN_ID}")
-        print("💰 Using CoinGecko API for real-time prices")
+        print("💰 Using Multi-API System for real-time prices")
+        print("🔧 APIs: Binance, Kraken, CoinGecko")
     except Exception as e:
         logger.error(f"Failed to set webhook automatically: {e}")
         print(f"❌ Webhook setup failed: {e}")
 
-    print("🤖 Bot starting with fixed deposit system...")
+    print("🤖 Bot starting with improved payment system...")
     app.run(host='0.0.0.0', port=5000)
