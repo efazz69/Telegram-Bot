@@ -978,8 +978,456 @@ def handle_text_message(update, context):
         # Default response for other text messages
         update.message.reply_text("💡 Use the menu buttons or commands to navigate the bot.\n\nUse /start to see the main menu.")
 
-# ... [REST OF YOUR ADMIN COMMANDS AND FLASK ROUTES REMAIN THE SAME] ...
-# The admin commands and Flask routes from the previous version remain unchanged
+# ---------------------------
+# Admin Command Functions
+# ---------------------------
+def is_admin(user_id):
+    """Check if user is admin"""
+    return str(user_id) == str(ADMIN_ID)
+
+def load_data():
+    """Load all data from JSON files"""
+    with open('products.json', 'r') as f:
+        return json.load(f)
+
+def save_data(data):
+    """Save data to JSON files"""
+    with open('products.json', 'w') as f:
+        json.dump(data, f, indent=2)
+
+def add_category(update, context):
+    """Add a new category: /addcategory Name|Description"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text(
+            "📝 Usage: /addcategory Name|Description\n\n"
+            "Example: /addcategory 💎 Digital Accounts|Premium digital accounts and subscriptions"
+        )
+        return
+    
+    try:
+        args = ' '.join(context.args).split('|')
+        if len(args) != 2:
+            update.message.reply_text("❌ Invalid format. Use: Name|Description")
+            return
+        
+        name, description = args
+        
+        data = load_data()
+        
+        # Generate new category ID
+        new_id = max([c['id'] for c in data['categories']]) + 1 if data['categories'] else 1
+        
+        new_category = {
+            'id': new_id,
+            'name': name.strip(),
+            'description': description.strip()
+        }
+        
+        data['categories'].append(new_category)
+        save_data(data)
+        
+        # Reload products data
+        global categories
+        categories = data['categories']
+        
+        update.message.reply_text(
+            f"✅ Category added successfully!\n\n"
+            f"🆔 ID: {new_id}\n"
+            f"📂 Name: {name}\n"
+            f"📝 Description: {description}"
+        )
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def add_subcategory(update, context):
+    """Add a new subcategory: /addsubcategory Name|CategoryID|Description"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text(
+            "📝 Usage: /addsubcategory Name|CategoryID|Description\n\n"
+            "Example: /addsubcategory Streaming Services|1|Video and music streaming accounts\n\n"
+            "Use /listcategories to see available category IDs"
+        )
+        return
+    
+    try:
+        args = ' '.join(context.args).split('|')
+        if len(args) != 3:
+            update.message.reply_text("❌ Invalid format. Use: Name|CategoryID|Description")
+            return
+        
+        name, category_id, description = args
+        
+        data = load_data()
+        
+        # Check if category exists
+        category_exists = any(cat['id'] == int(category_id) for cat in data['categories'])
+        if not category_exists:
+            update.message.reply_text(f"❌ Category ID {category_id} not found. Use /listcategories")
+            return
+        
+        # Generate new subcategory ID
+        new_id = max([s['id'] for s in data['subcategories']]) + 1 if data['subcategories'] else 1
+        
+        new_subcategory = {
+            'id': new_id,
+            'name': name.strip(),
+            'category_id': int(category_id),
+            'description': description.strip()
+        }
+        
+        data['subcategories'].append(new_subcategory)
+        save_data(data)
+        
+        # Reload products data
+        global subcategories
+        subcategories = data['subcategories']
+        
+        update.message.reply_text(
+            f"✅ Subcategory added successfully!\n\n"
+            f"🆔 ID: {new_id}\n"
+            f"📂 Name: {name}\n"
+            f"🏷️ Category ID: {category_id}\n"
+            f"📝 Description: {description}"
+        )
+        
+    except ValueError:
+        update.message.reply_text("❌ Category ID must be a number")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def add_product(update, context):
+    """Add a new product: /addproduct Name|Description|Price|CategoryID|SubcategoryID|Feature1,Feature2"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text(
+            "📝 Usage: /addproduct Name|Description|Price|CategoryID|SubcategoryID|Feature1,Feature2\n\n"
+            "Example: /addproduct Netflix Premium|4K Ultra HD|5.99|1|1|4K Quality,4 Screens,30 Days Warranty\n\n"
+            "Use /listcategories and /listproducts to see IDs"
+        )
+        return
+    
+    try:
+        args = ' '.join(context.args).split('|')
+        if len(args) != 6:
+            update.message.reply_text("❌ Invalid format. Use: Name|Description|Price|CategoryID|SubcategoryID|Features")
+            return
+        
+        name, description, price, category_id, subcategory_id, features = args
+        
+        data = load_data()
+        
+        # Check if category exists
+        category_exists = any(cat['id'] == int(category_id) for cat in data['categories'])
+        if not category_exists:
+            update.message.reply_text(f"❌ Category ID {category_id} not found.")
+            return
+        
+        # Check if subcategory exists and belongs to category
+        subcategory_exists = any(
+            sub['id'] == int(subcategory_id) and sub['category_id'] == int(category_id) 
+            for sub in data['subcategories']
+        )
+        if not subcategory_exists:
+            update.message.reply_text(f"❌ Subcategory ID {subcategory_id} not found or doesn't belong to category {category_id}.")
+            return
+        
+        # Generate new product ID
+        new_id = max([p['id'] for p in data['products']]) + 1 if data['products'] else 1
+        
+        # Parse features
+        feature_list = [f.strip() for f in features.split(',')]
+        
+        new_product = {
+            'id': new_id,
+            'name': name.strip(),
+            'description': description.strip(),
+            'price': float(price),
+            'category_id': int(category_id),
+            'subcategory_id': int(subcategory_id),
+            'features': feature_list
+        }
+        
+        data['products'].append(new_product)
+        save_data(data)
+        
+        # Reload products data
+        global products
+        products = data['products']
+        
+        # Get category and subcategory names for confirmation
+        category_name = next((cat['name'] for cat in data['categories'] if cat['id'] == int(category_id)), "Unknown")
+        subcategory_name = next((sub['name'] for sub in data['subcategories'] if sub['id'] == int(subcategory_id)), "Unknown")
+        
+        update.message.reply_text(
+            f"✅ Product added successfully!\n\n"
+            f"🆔 ID: {new_id}\n"
+            f"📦 Name: {name}\n"
+            f"💰 Price: ${float(price):.2f}\n"
+            f"📂 Category: {category_name}\n"
+            f"📁 Subcategory: {subcategory_name}\n"
+            f"⭐ Features: {', '.join(feature_list)}"
+        )
+        
+    except ValueError:
+        update.message.reply_text("❌ Price, Category ID and Subcategory ID must be numbers")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def list_categories(update, context):
+    """List all categories and subcategories: /listcategories"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    try:
+        data = load_data()
+        
+        if not data['categories']:
+            update.message.reply_text("📭 No categories available.")
+            return
+        
+        categories_text = "📂 **All Categories & Subcategories:**\n\n"
+        
+        for category in data['categories']:
+            categories_text += f"🏷️ **{category['name']}** (ID: {category['id']})\n"
+            categories_text += f"   📝 {category['description']}\n"
+            
+            # Show subcategories for this category
+            subcategories_list = [s for s in data['subcategories'] if s['category_id'] == category['id']]
+            if subcategories_list:
+                for sub in subcategories_list:
+                    categories_text += f"   └─ 📁 {sub['name']} (ID: {sub['id']})\n"
+                    categories_text += f"        📝 {sub['description']}\n"
+            else:
+                categories_text += f"   └─ 📭 No subcategories\n"
+            
+            categories_text += "\n"
+        
+        update.message.reply_text(categories_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def list_subcategories(update, context):
+    """List all subcategories: /listsubcategories"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    try:
+        data = load_data()
+        
+        if not data['subcategories']:
+            update.message.reply_text("📭 No subcategories available.")
+            return
+        
+        subcategories_text = "📁 **All Subcategories:**\n\n"
+        
+        for subcategory in data['subcategories']:
+            category = next((c for c in data['categories'] if c['id'] == subcategory['category_id']), {"name": "Unknown"})
+            subcategories_text += f"📁 **{subcategory['name']}** (ID: {subcategory['id']})\n"
+            subcategories_text += f"   🏷️ Category: {category['name']} (ID: {subcategory['category_id']})\n"
+            subcategories_text += f"   📝 {subcategory['description']}\n\n"
+        
+        update.message.reply_text(subcategories_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def list_products(update, context):
+    """List all products: /listproducts"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    try:
+        data = load_data()
+        
+        if not data['products']:
+            update.message.reply_text("📭 No products available.")
+            return
+        
+        products_text = "📦 **All Products:**\n\n"
+        for product in data['products']:
+            category = next((c for c in data['categories'] if c['id'] == product['category_id']), {"name": "Unknown"})
+            subcategory = next((s for s in data['subcategories'] if s['id'] == product['subcategory_id']), {"name": "Unknown"})
+            
+            products_text += f"🆔 {product['id']}: {product['name']}\n"
+            products_text += f"   💰 ${product['price']} | 📂 {category['name']} | 📁 {subcategory['name']}\n"
+            products_text += f"   📝 {product['description']}\n"
+            products_text += f"   ⭐ Features: {', '.join(product.get('features', []))}\n\n"
+        
+        update.message.reply_text(products_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def delete_product(update, context):
+    """Delete a product: /deleteproduct PRODUCT_ID"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text("📝 Usage: /deleteproduct PRODUCT_ID")
+        return
+    
+    try:
+        product_id = int(context.args[0])
+        data = load_data()
+        
+        initial_count = len(data['products'])
+        data['products'] = [p for p in data['products'] if p['id'] != product_id]
+        
+        if len(data['products']) == initial_count:
+            update.message.reply_text(f"❌ Product ID {product_id} not found.")
+            return
+        
+        save_data(data)
+        
+        # Reload products data
+        global products
+        products = data['products']
+        
+        update.message.reply_text(f"✅ Product ID {product_id} deleted successfully.")
+        
+    except ValueError:
+        update.message.reply_text("❌ Product ID must be a number")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def delete_category(update, context):
+    """Delete a category and its subcategories/products: /deletecategory CATEGORY_ID"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text("📝 Usage: /deletecategory CATEGORY_ID")
+        return
+    
+    try:
+        category_id = int(context.args[0])
+        data = load_data()
+        
+        # Check if category exists
+        category_exists = any(cat['id'] == category_id for cat in data['categories'])
+        if not category_exists:
+            update.message.reply_text(f"❌ Category ID {category_id} not found.")
+            return
+        
+        # Get category name for confirmation
+        category_name = next((cat['name'] for cat in data['categories'] if cat['id'] == category_id), "Unknown")
+        
+        # Delete category
+        data['categories'] = [c for c in data['categories'] if c['id'] != category_id]
+        
+        # Delete related subcategories
+        subcategories_deleted = [s for s in data['subcategories'] if s['category_id'] == category_id]
+        data['subcategories'] = [s for s in data['subcategories'] if s['category_id'] != category_id]
+        
+        # Delete related products
+        products_deleted = [p for p in data['products'] if p['category_id'] == category_id]
+        data['products'] = [p for p in data['products'] if p['category_id'] != category_id]
+        
+        save_data(data)
+        
+        # Reload global data
+        global categories, subcategories, products
+        categories = data['categories']
+        subcategories = data['subcategories']
+        products = data['products']
+        
+        update.message.reply_text(
+            f"✅ Category '{category_name}' (ID: {category_id}) deleted successfully.\n\n"
+            f"🗑️ Also deleted:\n"
+            f"• {len(subcategories_deleted)} subcategories\n"
+            f"• {len(products_deleted)} products"
+        )
+        
+    except ValueError:
+        update.message.reply_text("❌ Category ID must be a number")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
+
+def delete_subcategory(update, context):
+    """Delete a subcategory and its products: /deletesubcategory SUBCATEGORY_ID"""
+    user_id = update.message.from_user.id
+    
+    if not is_admin(user_id):
+        update.message.reply_text("❌ Admin access required.")
+        return
+    
+    if not context.args:
+        update.message.reply_text("📝 Usage: /deletesubcategory SUBCATEGORY_ID")
+        return
+    
+    try:
+        subcategory_id = int(context.args[0])
+        data = load_data()
+        
+        # Check if subcategory exists
+        subcategory_exists = any(sub['id'] == subcategory_id for sub in data['subcategories'])
+        if not subcategory_exists:
+            update.message.reply_text(f"❌ Subcategory ID {subcategory_id} not found.")
+            return
+        
+        # Get subcategory name and category info for confirmation
+        subcategory = next((sub for sub in data['subcategories'] if sub['id'] == subcategory_id), None)
+        category_name = next((cat['name'] for cat in data['categories'] if cat['id'] == subcategory['category_id']), "Unknown")
+        
+        # Delete subcategory
+        data['subcategories'] = [s for s in data['subcategories'] if s['id'] != subcategory_id]
+        
+        # Delete related products
+        products_deleted = [p for p in data['products'] if p['subcategory_id'] == subcategory_id]
+        data['products'] = [p for p in data['products'] if p['subcategory_id'] != subcategory_id]
+        
+        save_data(data)
+        
+        # Reload global data
+        global subcategories, products
+        subcategories = data['subcategories']
+        products = data['products']
+        
+        update.message.reply_text(
+            f"✅ Subcategory '{subcategory['name']}' (ID: {subcategory_id}) deleted successfully.\n\n"
+            f"📂 Category: {category_name}\n"
+            f"🗑️ Also deleted: {len(products_deleted)} products"
+        )
+        
+    except ValueError:
+        update.message.reply_text("❌ Subcategory ID must be a number")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {str(e)}")
 
 # ---------------------------
 # Setup Handlers
